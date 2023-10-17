@@ -1,4 +1,4 @@
-import myModule
+import myModule # vd file myModule
 
 import technical_indicators_lib as til
 import numpy as np
