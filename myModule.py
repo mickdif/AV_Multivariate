@@ -1,9 +1,29 @@
 import numpy as np
-import torch
 import torch.nn as nn
 from torch.utils.data import Dataset
 
+def myMSE(real, pred):
+    if len(real) !=  len(pred):
+        print("myMSE: la lunghezza dei due vettori deve essere uguale!")
+        return -1
+    else:
+        p_sum = 0
+        for idx in range(len(real)):
+            p_sum += pow( real[idx] - pred[idx], 2)
+            
+        return p_sum / len(real)
 
+def MAPE(real, pred):
+    real, pred = np.array(real), np.array(pred)
+    
+    if len(real) !=  len(pred):
+        print("myDifPerc: la lunghezza dei due vettori deve essere uguale!")
+        return -1
+    
+    else:
+        mape = np.mean(np.abs((real - pred) / real))
+        return mape
+        
 class Normalizer():
     # una gaussiana ha 2 parametri: mu (indica la media, il centro, x del picco) e la variazione std
     def __init__(self):
@@ -23,33 +43,32 @@ class Normalizer():
     def inverse_transform_lin(self, x):
         return (x*self.sd.iloc[0]) + self.mu.iloc[0]
     
-
-def split_sequences(input_sequences, output_sequence, n_steps_in, n_steps_out):
+def split_sequences(input_sequences, output_sequence, n_steps_in, n_steps_out): # x, y, windows size, days predicted
     X, y = list(), list() # instantiate X and y
     for i in range(len(input_sequences)):
         end_ix = i + n_steps_in # = i + 20
-        if end_ix + n_steps_out > len(input_sequences): break # check if we are beyond the dataset
+        out_end_ix = end_ix + n_steps_out # = 21
+        if out_end_ix > len(input_sequences): break # check if we are beyond the dataset
 
         seq_x = input_sequences[i:end_ix] # seq_x = inp[0,20]; seq_x = inp[1,21]; seq_x = inp[2,22] etc
-        seq_y = output_sequence[end_ix:end_ix + n_steps_out] # seq_y = out[21]; seq_y = out[22]; seq_y = out[23] etc
+        seq_y = output_sequence[end_ix:out_end_ix] # seq_y = out[20:21]=out[21]; seq_y = out[22]; seq_y = out[23] etc
         
         X.append(seq_x), y.append(seq_y)        
     return np.array(X), np.array(y)
 
-
-
 class TimeSeriesDataset(Dataset):
  
   def __init__(self, x, y):
-    self.x = torch.tensor(x, dtype=torch.float32)
-    self.y = torch.tensor(y, dtype=torch.float32)
- 
+    # self.x = torch.tensor(x, dtype=torch.float32)
+    # self.x = x.clone().detach().requires_grad_(True).float()
+    self.x = x.clone().requires_grad_(True).float()
+    self.y = y.clone().requires_grad_(True).float()
+
   def __len__(self):
     return len(self.y)
-   
+
   def __getitem__(self, idx):
     return self.x[idx], self.y[idx]
-
 
 class LSTM(nn.Module):
     def __init__(self, output_size, input_size, hidden_size, num_layers, drop=0):
