@@ -1,66 +1,74 @@
 import myModule
-#  import mySentiment
+import mySentiment
 
 import yfinance as yf
 import technical_indicators_lib as til
 import numpy as np
 import pandas as pd
 import torch
-import torch.optim as optim
-from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt 
-from sched import scheduler
+# from sched import scheduler
+from sklearn.metrics import mean_absolute_percentage_error
+from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 print("All libraries loaded")
 
-# general options
-HLOCV = 1
-indicatori = 1
+# input options
+HLOCV = 0
+indicatori = 0
 medie = 0
-# aggiorna_dati = 0 # 0 = no
+sentiment = 1
+query = "Campari"
 
+# general options
 do_plot = 1 # 0 no 
-print_example = 0 # 1 no
-save_output = 1 # 1 no
+print_example = 1 # 1 no
+save_output = 0 # 1 no
 
-# LSTM configuration
+# configuration
 config = {
-    "data": {
-        "window_size": 80, # quanti dati usare per predire la prossima chiusura
-        "predicted_days": 1, # quanti gg prevedere
-        "train_split_size": 0.80,
-    },
-    "model": {
-        "output_size": 1,
-        "num_lstm_layers": 2,
-        "lstm_size": 100, # MOD erano 32
-        "dropout": 0.2,
-    },
-    "training": {
-        "device": "cpu", # "cuda" or "cpu"
-        "batch_size": 64, # +++ MOD erano 64
-        "num_epoch": 100, # +++ MOD erano 100
-        "learning_rate": 0.01,# +++ MOD era 0.01
-        "scheduler_step_size": 40,
-    }
+    "titolo": "TIT.MI", 
+    "periodo": "5y",
+    
+    "window_size": 50, # quanti dati usare per predire la prossima chiusura
+    "predicted_days": 20, # quanti gg prevedere
+    "train_split_size": 0.85,
+
+    #"output_size": 1,
+    "hidden_layer": 1, # con >1 da err
+    "hidden_layer_size": 32, # 1
+
+    "num_epoch": 100,
+    "learning_rate": 0.03,
 }
+print(config)
+with open('output/textfile.txt', 'w') as f: f.write(str(config))
 
-#
-# CARICAMENTO DATI
-#
-TIT = yf.Ticker("TIT.MI")
-hist = TIT.history("5y") # get historical market data
+##
+# scarico dati
+##
+TIT = yf.Ticker(config["titolo"])
+hist = TIT.history(config["periodo"]) # get historical market data
 data = pd.DataFrame(hist) # data come indice
-
+data = data.drop(["Dividends", "Stock Splits"], axis=1)
 data = data.rename(columns={"Open": "open", "High": "high", "Low":"low",
                             "Close": "close", "Volume": "volume"}) # technical_indicators_lib vuole i nomi minuscoli
-data = data.drop(["Dividends", "Stock Splits"], axis=1)
 print("Dati caricati: ", data.shape)
 
-#
-# PREPARAZIONE DATI
-#
-
-# 0) calcolo medie e indicatori, applico general options
+##
+# calcolo medie e indicatori, applico input options
+##
+if sentiment == 1:
+    print("ciao")  
+    subjectivity = np.array('')
+    subj = 0
+    for idx in range(len(data)):
+        print("c")  
+        subj, _ = mySentiment.Sentiment_Analysis(query=query, language='it' ,country='IT', start=data.index[idx], end=data.index[idx+1])
+        subjectivity = np.append(subjectivity, subj)
+        
+    data['subjectivity'] = subjectivity
+print("ciao")        
 if medie == 1:
     data = til.SMA().get_value_df(data, 5)
     data = data.rename(columns={'SMA':'SMAshort'})
@@ -71,176 +79,235 @@ if medie == 1:
     data = data.rename(columns={'EMA':'EMAshort'})
     data = til.EMA().get_value_df(data, 10)
     data = data.rename(columns={'EMA':'EMAlong'})
+    
+    with open('output/textfile.txt', 'a') as f: f.write("\ncon medie")
 
 if indicatori == 1:
     data = til.RSI().get_value_df(data, 14)
     data = til.CCI().get_value_df(data, 14)
-#  data = til.ADI().get_value_df(data) la maggior parte venirano vuote
+    # data = til.ADI().get_value_df(data) la maggior parte venivano vuote
     data = til.StochasticKAndD().get_value_df(data, 14)
     data = til.MACD().get_value_df(data)
     data = til.ATR().get_value_df(data, 14)
+    
+    with open('output/textfile.txt', 'a') as f: f.write("\ncon indicatori")
 
 if HLOCV == 0:
     data = data.drop(["high", "low", "open", "volume"], axis=1)
+    with open('output/textfile.txt', 'a') as f: f.write("\nsolo adj close")
+else:
+    with open('output/textfile.txt', 'a') as f: f.write("\ncon HLOCV")
 
-# 1) Pulire: elimino righe con campi vuoti
-print("data row shape: ", data.shape)
+##
+# Filtro per data
+##
+# data.index = pd.to_datetime(data.index, format='%Y-%m-%d') # Convert the date to datetime64
+# data = data.loc[(data.index >= '2013-10-31') & (data.index < '2023-10-23')]
+X, y = data, data.close.values # verranno usati come sinonimi
+## 
+# Pulire: elimino righe con campi vuoti, calcolo input_size
+##
 data.replace('', np.nan, inplace=True)
 data.replace('null', np.nan, inplace=True)
+print("raw data shape: ", data.shape)
 data.dropna(inplace=True)
-data.to_csv("output/clean_pd.csv")
+print("clean data shape: ", data.shape)
 
-input_size = data.shape[1]
-print("Elaborazioni dati completa, dimensione matrice dati: ", data.shape)
+if print_example == 1: data.to_csv("output/clean_pd.csv")
 
-# GRAFICO dei prezzi di chiusura  
-if(do_plot == 1):
+input_size = data.shape[1]  
+
+##
+# NORMALIZZO
+##
+mm = MinMaxScaler()
+ss = StandardScaler()
+X_trans = ss.fit_transform(data)
+y_trans = mm.fit_transform(data.close.values.reshape(-1, 1)) 
+
+##
+# SPLIT
+##
+X_ss, y_mm = myModule.split_sequences(X_trans, y_trans, config["window_size"], config["predicted_days"])
+print("X_ss e y_mm shape", X_ss.shape, y_mm.shape)
+if print_example == 1:
+    print("y_mm[0]", y_mm[0])
+    print("y_trans[99:149].squeeze(1)", y_trans[99:149].squeeze(1))
+
+# assert y_mm[0].all() == y_trans[99:149].squeeze(1).all() # capiscilo
+
+##
+# CUTOFF
+##
+total_samples = len(data)
+train_test_cutoff = round(config["train_split_size"] * total_samples)
+
+z = config["window_size"]+config["predicted_days"]
+X_train = X_ss[:train_test_cutoff]
+X_test = X_ss[train_test_cutoff:]
+
+y_train = y_mm[:train_test_cutoff]
+y_test = y_mm[train_test_cutoff:] 
+# X_train = X_ss[:-z]
+# X_test = X_ss[-z:]
+# y_train = y_mm[:-z]
+# y_test = y_mm[-z:] 
+print("Training Shape:", X_train.shape, y_train.shape)
+print("Testing Shape:", X_test.shape, y_test.shape) 
+
+# GRAFICO dei prezzi di chiusura 
+display_date_range = data.index[0].strftime("%b %Y") + " - " + data.index[-1].strftime("%b %Y")
+if(do_plot == 0):
     df_to_plot = data.reset_index() # stampare coll'indice e' lento
     plt.plot(df_to_plot.close)
     # plt.xlabel("Time")
-    plt.ylabel("Price")
-    plt.title("Adj close price")
+    plt.ylabel("USD $")
+    plt.title( config["titolo"] + " - Adj close price - " + display_date_range)
+    plt.axvline(label='prediction', x=len(y)-config["predicted_days"], c='g', linestyle='--')
+    plt.axvline(label='training-testing', x=train_test_cutoff, c='r', linestyle='--') # size of the training set
     plt.savefig("output/initial_plot.png", dpi=250)
     plt.show();
 
-# 2) normalizzo i dati
-scaler = myModule.Normalizer()
-data = scaler.fit_transform(data)
-data = data.astype(float)
-print("Dati normalizzati")
+##
+# TENSOR
+##
+X_train_tensors = torch.tensor(X_train, requires_grad=True, dtype=torch.double)
+X_test_tensors = torch.tensor(X_test, requires_grad=True, dtype=torch.double)
+y_train_tensors = torch.tensor(y_train, requires_grad=True, dtype=torch.double)
+y_test_tensors = torch.tensor(y_test, requires_grad=True, dtype=torch.double)
 
-# 3) split: crea una matrice 3D: len(data) x giorni x n di variabili
-# da ora in poi: X matrice dei dati, y vettore target
-X_split, y_split = myModule.split_sequences(data, data.close.values, config["data"]["window_size"], config["data"]["predicted_days"])
-print("Split effettuato; X_split: ", X_split.shape, " y_split: ", y_split.shape)
+X_train_tensors_final = torch.reshape(X_train_tensors,   
+                                      (X_train_tensors.shape[0], config["window_size"], 
+                                       X_train_tensors.shape[2]))
+X_test_tensors_final = torch.reshape(X_test_tensors,  
+                                     (X_test_tensors.shape[0], config["window_size"], 
+                                      X_test_tensors.shape[2])) 
+
+print("Training Shape:", X_train_tensors_final.shape, y_train_tensors.shape)
+print("Testing Shape:", X_test_tensors_final.shape, y_test_tensors.shape) 
+
 if print_example == 1:
-    print("X_split[-1]: ")
-    print(X_split[-1])
-    print("y_split [-1]: ", y_split[-1])
-    print("y_split [-2]: ", y_split[-2])
-    print("y_split [-3]: ", y_split[-3])
-    print("y_split [-4]: ", y_split[-4])
+    X_check, y_check = myModule.split_sequences(X, y.reshape(-1, 1), config["window_size"], config["predicted_days"])
+    X_check[-1][0:4]
+    print("y_check[-1]", y_check[-1])
+    print("data.close.values[-50:]", data.close.values[-50:])
 
-# 4) creo i set di training e di testing
-train_test_cutoff = round(config["data"]["train_split_size"] * len(data))
-X_train = X_split[:train_test_cutoff]
-X_test = X_split[train_test_cutoff:]
-y_train = y_split[:train_test_cutoff]
-y_test = y_split[train_test_cutoff:]
+import warnings # evita warining su copyconstructor, consiglia di usare clone
+warnings.filterwarnings('ignore')
 
-# 5) Trasforma in tensori
-X_train_tensors = torch.tensor(X_train, requires_grad=True)
-X_test_tensors = torch.tensor(X_test, requires_grad=True)
-y_train_tensors = torch.tensor(y_train, requires_grad=True)
-y_test_tensors = torch.tensor(y_test, requires_grad=True)
-
-# 6) Inserisce dati in un ogg di tipo Dataset
-dataset_train = myModule.TimeSeriesDataset(X_train_tensors, y_train_tensors)
-dataset_val = myModule.TimeSeriesDataset(X_test_tensors, y_test_tensors)
-
-print("Train data shape", dataset_train.x.shape, dataset_train.y.shape)
-print("Validation data shape", dataset_val.x.shape, dataset_val.y.shape)
-
-# 7) Inserisce dati in un ogg di tipo DataLoader
-train_dataloader = DataLoader(dataset_train, batch_size=config["training"]["batch_size"], shuffle=True)
-val_dataloader = DataLoader(dataset_val, batch_size=config["training"]["batch_size"], shuffle=True)
-
-print("Dati pronti per LSTM")
-
-#
-# Creo LSTM
-#
-model = myModule.LSTM(config["model"]["output_size"],
+##
+# LSTM
+##
+lstm = myModule.LSTM(config["predicted_days"], 
               input_size, 
-              config["model"]["lstm_size"], 
-              config["model"]["num_lstm_layers"],
-              config["model"]["dropout"])
-model = model.to(config["training"]["device"])
+              config["hidden_layer_size"], 
+              config["hidden_layer"])
+lstm.double() # evita err "expected float found double" (o vv) ricorda che double = float64
 
-criterion = torch.nn.MSELoss()    # mean-squared error for regression
-optimizer = torch.optim.Adam(model.parameters(), lr=config["training"]["learning_rate"]) 
-scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=config["training"]["scheduler_step_size"], gamma=0.1)
+loss_fn = torch.nn.MSELoss()    # mean-squared error for regression
+optimiser = torch.optim.Adam(lstm.parameters(), lr=config["learning_rate"]) 
 
-#
-# Alleno LSTM
-#
-for epoch in range(config["training"]["num_epoch"]):
-    loss_train, lr_train = myModule.run_epoch(model, optimizer, criterion, scheduler, config["training"]["device"],
-                                              train_dataloader, is_training=True)
-    loss_val, lr_val = myModule.run_epoch(model, optimizer, criterion, scheduler, config["training"]["device"],
-                                           val_dataloader)
-    scheduler.step()
+myModule.training_loop(n_epochs = config["num_epoch"],
+              lstm = lstm,
+              optimiser = optimiser,
+              loss_fn = loss_fn,
+              X_train = X_train_tensors_final,
+              y_train = y_train_tensors,
+              X_test = X_test_tensors_final,
+              y_test = y_test_tensors)
 
-    print('Epoch[{}/{}] | loss train:{:.6f}, test:{:.6f} | lr:{:.6f}'
-          .format(epoch + 1, config["training"]["num_epoch"], loss_train, loss_val, lr_train))
+##
+# PREVISIONI
+##
+# ricalco e ritrasformo perche' le vecchie variabili le ho usate nel training(?)
+    # normalizzo
+df_X_ss = ss.transform(data) 
+df_y_mm = mm.transform(data.close.values.reshape(-1, 1))
+    # split
+df_X_ss, df_y_mm = myModule.split_sequences(df_X_ss, df_y_mm, config["window_size"], config["predicted_days"])
+    # tensors
+df_X_ss = torch.tensor(df_X_ss, requires_grad=True)
+df_y_mm = torch.tensor(df_y_mm, requires_grad=True)
+    # reshaping
+df_X_ss = torch.reshape(df_X_ss, (df_X_ss.shape[0], config["window_size"], df_X_ss.shape[2]))
 
-# here we re-initialize dataloader so the data doesn't shuffled, so we can plot the values by date
-train_dataloader = DataLoader(dataset_train, batch_size=config["training"]["batch_size"], shuffle=False)
-val_dataloader = DataLoader(dataset_val, batch_size=config["training"]["batch_size"], shuffle=False)
+# PREVEDO su training e test dataset
+    # forward pass
+train_predict = lstm(df_X_ss) 
+    # numpy conversion
+data_predict = train_predict.data.numpy() 
+dataY_plot = df_y_mm.data.numpy()
+    # reverse transformation
+data_predict = mm.inverse_transform(data_predict) 
+dataY_plot = mm.inverse_transform(dataY_plot)
 
-model.eval()
+true, preds = [], []
+for i in range(len(dataY_plot)):
+    true.append(dataY_plot[i][0])
+for i in range(len(data_predict)):
+    preds.append(data_predict[i][0])
 
-#
-# predict on the training data, to see how well the model managed to learn and memorize
-#
-predicted_train = np.array([])
-
-for idx, (x, y) in enumerate(train_dataloader):
-    x = x.to(config["training"]["device"])
-    out = model(x)
-    out = out.cpu().detach().numpy()
-    out = out.transpose()
-    predicted_train = np.concatenate((predicted_train, out[0]))
-
-predicted_train = scaler.inverse_transform_lin(predicted_train)
-y_train = scaler.inverse_transform_lin(y_train)
-# predicted_train = scaler.inverse_transform(predicted_train.reshape(-1, 1))
-# y_train = scaler.inverse_transform(y_train.reshape(-1, 1))
-
-print("myMSE train: ", myModule.myMSE(y_train, predicted_train))
-print("MAPE train: ", np.round(myModule.MAPE(y_train, predicted_train)*100,1),"%")
-if save_output == 1:
-    np.savetxt("output/reali_train.csv", np.flip(y_train, 0), delimiter='\n', header="Reali train", fmt="%2f")
-    np.savetxt("output/previsti_train.csv", np.flip(predicted_train, 0), delimiter='\n', header="Previsti train", fmt="%2f")
-    
-#
-# predict on the validation data, to see how the model does
-#
-predicted_val = np.array([])
-for idx, (x, y) in enumerate(val_dataloader):
-    x = x.to(config["training"]["device"])
-    out = model(x)
-    out = out.cpu().detach().numpy()
-    out = out.transpose()
-    predicted_val = np.concatenate((predicted_val, out[0]))
-   
-predicted_val = scaler.inverse_transform_lin(predicted_val.reshape(-1, 1))
-y_test = scaler.inverse_transform_lin(y_test.reshape(-1, 1))
-
-print("myMSE test: ", myModule.myMSE(y_test, predicted_val))
-print("MAPE test: ", np.round(myModule.MAPE(y_test, predicted_val)*100,1),"%")
-if save_output == 1:
-    np.savetxt("output/reali_test.csv", np.flip(y_test, 0), delimiter='\n', header="Reali test", fmt="%2f")
-    np.savetxt("output/previsti_test.csv", np.flip(predicted_val, 0), delimiter='\n', header="Previsti test", fmt="%2f")
-
-# GRAFICI FINALI
-if(do_plot == 1):
+# GRAFICO
+if do_plot == 1:
     plt.figure(figsize=(10,6)) #plotting
-    plt.plot(y_train, label='Actual Train Data') # actual plot
-    plt.plot(predicted_train, label='Predicted Train Data') # predicted plot
-    
-    plt.title('Time-Series Prediction: training data')
+    plt.axvline(label='training-testing', x=train_test_cutoff, c='r', linestyle='--') # size of the training set
+
+    plt.plot(true, label='Actual Data') # actual plot
+    plt.plot(preds, label='Predicted Data') # predicted plot
+    plt.title(config["titolo"] + 'Time-Series Prediction')
+    plt.grid(which='both', axis='x')
     plt.legend()
-    plt.savefig("output/training.png", dpi=300)
+    plt.savefig("output/whole_plot.png", dpi=300)
+    plt.show() 
+
+text = "MSE whole: " +  str(mean_squared_error(true, preds))
+print(text)
+with open('output/textfile.txt', 'a') as f: f.write("\n"+text)
+
+text = "MAPE whole: " + str(mean_absolute_percentage_error(true, preds)*100) + "%"
+print(text)
+with open('output/textfile.txt', 'a') as f: f.write("\n"+text)
+
+# PREVEDO
+test_predict = lstm(X_test_tensors_final[-1].unsqueeze(0)) # get the last sample
+
+test_predict = test_predict.detach().numpy()
+test_target = y_test_tensors[-1].detach().numpy() # last sample again
+
+test_predict = mm.inverse_transform(test_predict)
+test_target = mm.inverse_transform(test_target.reshape(1, -1))
+
+test_predict = test_predict[0].tolist()
+test_target = test_target[0].tolist()
+
+text = "MSE small: " +  str(mean_squared_error(test_target, test_predict))
+print(text)
+with open('output/textfile.txt', 'a') as f: f.write("\n"+text)
+
+text = "MAPE small: " + str(mean_absolute_percentage_error(test_target, test_predict)*100) + "%"
+print(text)
+with open('output/textfile.txt', 'a') as f: f.write("\n"+text)
+
+
+# GRAFICI
+if do_plot == 1:
+    # SMALL PLOT
+    plt.plot(test_target, label="Actual Data")
+    plt.plot(test_predict, label="LSTM Predictions")
+    plt.title(config["titolo"] + " - " + str(config["predicted_days"]) + " days prediction")
+    plt.grid(which='both', axis='x')
+    plt.savefig("output/small_plot.png", dpi=300)
     plt.show()
 
+    # FINAL PLOT
     plt.figure(figsize=(10,6)) #plotting
-    plt.plot(y_test, label='Actual Pred Data') # actual plot
-    plt.plot(predicted_val, label='Predicted Pred Data') # predicted plot
-    
-    plt.title('Time-Series Prediction: evaluation data')
+    a = [x for x in range(int(len(y)-100), len(y))]
+    plt.plot(a, y[int(len(y)-100):], label='Actual data');
+    c = [x for x in range(len(y)-config["predicted_days"], len(y))]
+    plt.plot(c, test_predict, label='One-shot multi-step prediction')
+    plt.axvline(label='prediction', x=len(y)-config["predicted_days"], c='g', linestyle='--')
+    plt.title(config["titolo"] + " - Partial date and " + str(config["predicted_days"]) + " days prediction")
+    plt.grid(which='both', axis='x')
     plt.legend()
-    plt.savefig("output/evaluation_data.png", dpi=300)
+    plt.savefig("output/final_plot.png", dpi=300)
     plt.show()
-
-print("FINE: dati e grafici (se) sono stati salvati nella cartella 'output'")
