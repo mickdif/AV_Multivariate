@@ -28,7 +28,7 @@ save_output = 0 # 1 no
 # configuration
 config = {
     "titolo": "TIT.MI", 
-    "periodo": "5y",
+    "periodo": "1y",
     
     "window_size": 50, # quanti dati usare per predire la prossima chiusura
     "predicted_days": 20, # quanti gg prevedere
@@ -58,17 +58,29 @@ print("Dati caricati: ", data.shape)
 ##
 # calcolo medie e indicatori, applico input options
 ##
+
+
+##########################################
+#
+########## SENTIMENT ANALYSIS ############
+#
+##########################################
 if sentiment == 1:
-    print("ciao")  
-    subjectivity = np.array('')
-    subj = 0
-    for idx in range(len(data)):
-        print("c")  
-        subj, _ = mySentiment.Sentiment_Analysis(query=query, language='it' ,country='IT', start=data.index[idx], end=data.index[idx+1])
-        subjectivity = np.append(subjectivity, subj)
-        
-    data['subjectivity'] = subjectivity
-print("ciao")        
+    print(data.index[0])
+    print(data.index[-1])
+    SA = mySentiment.Sentiment_Analysis(query=query, language='it' ,country='IT', start=data.index[0], end=data.index[-1])
+    polarity_array = np.array('')
+    for idx in data.index:
+        print(idx)
+        polarity_array = np.append(polarity_array, SA.do_Analysis(idx, debug=True))
+    
+    
+    data['polarity'] = polarity_array[:-1] # probabilmente va anche fatto un flip
+    plt.plot(polarity_array)
+    plt.show()
+# stop sentiment
+###########################################
+
 if medie == 1:
     data = til.SMA().get_value_df(data, 5)
     data = data.rename(columns={'SMA':'SMAshort'})
@@ -99,11 +111,13 @@ else:
     with open('output/textfile.txt', 'a') as f: f.write("\ncon HLOCV")
 
 ##
-# Filtro per data
+# Filtro per data (pu� tornare utile)
 ##
 # data.index = pd.to_datetime(data.index, format='%Y-%m-%d') # Convert the date to datetime64
 # data = data.loc[(data.index >= '2013-10-31') & (data.index < '2023-10-23')]
-X, y = data, data.close.values # verranno usati come sinonimi
+
+X, y = data, data.close.values # verranno usati come sinonimi alternativamente senza particolare logica
+
 ## 
 # Pulire: elimino righe con campi vuoti, calcolo input_size
 ##

@@ -2,49 +2,59 @@ from doctest import debug
 from gnews import GNews # scrape
 from deep_translator import GoogleTranslator # translate
 from textblob import TextBlob # evaluate
-import numpy as np
 
+class Sentiment_Analysis:
+    def __init__(self, query, language, country, start, end):
+        self.google_news = GNews(language=language, country=country, start_date=start, end_date=end, max_results=1000)         
 
-def Sentiment_Analysis(query, language, country, start, end, debug=False):
+        # altri esempi che danno problemi
+        # self.google_news = GNews(language=language, country=country, start_date=(2019, 1, 1), end_date=(2020, 1, 1), max_results=1000) 
+        # self.google_news = GNews(language=language, country=country, period="5y") 
+        self.json_resp = self.google_news.get_news(query)
+        self.gt = GoogleTranslator(source=language, target='en')
+        self.idx = 0
 
-    google_news = GNews(language=language, country=country, start_date=start, end_date=end, max_results=10)
-    json_resp = google_news.get_news(query)
+    def do_Analysis(self, date, debug=False): # per singolo giorno
+        polarity_tot = 0.0
 
-    polarity_tot = 0
-    polarity_array = np.array('')
-    well_read = 0 # articoli aperti senza errori
-    
-    gt=GoogleTranslator(source='it', target='en')
-
-    for idx in range(len(json_resp)):
-        article = google_news.get_full_article(json_resp[idx]['url']) # newspaper3k instance
-    
-        try:
-            if query not in article.title:
+        while self.idx < len(self.json_resp):
+            article = self.google_news.get_full_article(self.json_resp[self.idx]['url']) # newspaper3k instance
+            
+            if article.publish_date  != date:
+                if debug == True: print(article.publish_date, " != ", date)
                 break
-            # open and translate
-            text = article.text
-            text = gt.translate(text=text)
- 
-            # Sentiment Analysis
-            # The sentiment property returns a namedtuple of the form Sentiment(polarity, subjectivity). 
-            # The polarity score is a float within the range [-1.0, 1.0]. 
-            # The subjectivity is a float within the range [0.0, 1.0] where 0.0 is very objective and 1.0 is very subjective. (from api reference)
-            analysis = TextBlob(text)
-            polarity_tot += analysis.sentiment.polarity
-            polarity_array = np.append(polarity_array, analysis.sentiment.polarity)        
+
+            self.idx += 1
             
-            well_read += 1 
+            try:
+                # commentato per mettere in risalto altri problemi
+                # if self.query not in article.title: 
+                # if debug == True: print(self.query, " non in ", article.title)
+                    # continue
 
-            if debug == True: 
-                print(article.title)
-                print(analysis.sentiment) 
-            
-        except: 
-            continue # ignore exceptions
-
-
-    if well_read == 0:
-        return 0.0
-    else:
-        return polarity_tot, polarity_array
+                # open and translate
+                text = article.text
+                text = self.gt.translate(text=text)
+                
+                if debug == True:
+                    print("debug")
+                    print(article.title)
+                    print(article.publish_date)
+                
+            except:
+                try:
+                    text = article.description
+                    text = self.gt.translate(text=text)
+                except :
+                    if debug == True: print("errore nell'apertura dell'articolo")
+                    continue # ignore exceptions
+                
+            try:
+                analysis = TextBlob(text)
+                polarity_tot += analysis.sentiment.polarity
+                if debug == True: print(analysis.sentiment) 
+            except:
+                if debug == True: print("errore nella traduzione")
+                continue # ignore exceptions
+           
+        return polarity_tot     
