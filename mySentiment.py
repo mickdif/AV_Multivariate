@@ -1,4 +1,3 @@
-from doctest import debug
 from gnews import GNews # scrape
 from deep_translator import GoogleTranslator # translate
 from textblob import TextBlob # evaluate
