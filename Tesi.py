@@ -31,7 +31,7 @@ config = {
     
     "window_size": 20, # quanti dati usare per predire la prossima chiusura
     "predicted_days": 1, # quanti gg prevedere
-    "ripetizioni": 10,
+    "ripetizioni": 8,
     "train_split_size": 0.80,
 
     "hidden_layer": 2,
@@ -270,18 +270,18 @@ for i in range(config["ripetizioni"]):
 test_target, test_predict = array_target, array_pred
 
 ############################################
-########### SENTIMENT ######################
+############## SENTIMENT ###################
 ############################################
 if sentiment == 1:
+    data_sa = np.zeros((new_cutoff-5,2))
+    Sent = mySentiment.Sentiment_Analysis()
     for i in range(new_cutoff-5):
         idx1 = new_cutoff - i
         idx2 = idx1 + 5
-        # print("data: ",data.index[-idx1], " - ", data.index[-idx2])
-        Sent = mySentiment.Sentiment_Analysis(query=query,
-                                              start=data.index[-idx2], 
-                                              end=data.index[-idx1])
-        s_a = Sent.do_Analysis(True)
-        data_sa = np.zeros((new_cutoff-5,2))
+        s_a = Sent.do_Analysis(query=query, start=data.index[-idx2], 
+                                            end=data.index[-idx1],
+                                            debug=True)
+        print("media: ", s_a)
         data_sa[i][0] = test_predict[i+5]
         data_sa[i][1] = s_a
     print(data_sa)
