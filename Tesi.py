@@ -7,42 +7,41 @@ import numpy as np
 import pandas as pd
 import torch
 import matplotlib.pyplot as plt 
-# from sched import scheduler
-from sklearn.metrics import mean_absolute_percentage_error
-from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 print("All libraries loaded")
+
+nome = "output/w.txt"
 
 # input options
 HLOCV = 0
 indicatori = 0
 medie = 0
 sentiment = 1
-query = "Campari"
+query='Telecom Italia'
 
 # general options
-do_plot = 1 # 0 no 
-print_example = 1 # 1 no
-save_output = 0 # 1 no
+do_plot = 0 # 0 no 
+print_example = 0 # 0 no
+save_output = 0 # 0 no
 
 # configuration
 config = {
     "titolo": "TIT.MI", 
     "periodo": "1y",
     
-    "window_size": 50, # quanti dati usare per predire la prossima chiusura
-    "predicted_days": 20, # quanti gg prevedere
-    "train_split_size": 0.85,
+    "window_size": 20, # quanti dati usare per predire la prossima chiusura
+    "predicted_days": 1, # quanti gg prevedere
+    "ripetizioni": 10,
+    "train_split_size": 0.80,
 
-    #"output_size": 1,
-    "hidden_layer": 1, # con >1 da err
-    "hidden_layer_size": 32, # 1
+    "hidden_layer": 2,
+    "hidden_layer_size": 32, 
 
-    "num_epoch": 100,
-    "learning_rate": 0.03,
+    "num_epoch": 10,
+    "learning_rate": 0.01,
 }
 print(config)
-with open('output/textfile.txt', 'w') as f: f.write(str(config))
+with open(nome, 'w') as f: f.write(str(config))
 
 ##
 # scarico dati
@@ -53,125 +52,97 @@ data = pd.DataFrame(hist) # data come indice
 data = data.drop(["Dividends", "Stock Splits"], axis=1)
 data = data.rename(columns={"Open": "open", "High": "high", "Low":"low",
                             "Close": "close", "Volume": "volume"}) # technical_indicators_lib vuole i nomi minuscoli
-print("Dati caricati: ", data.shape)
 
 ##
 # calcolo medie e indicatori, applico input options
 ##
-
-
-##########################################
-#
-########## SENTIMENT ANALYSIS ############
-#
-##########################################
-if sentiment == 1:
-    print(data.index[0])
-    print(data.index[-1])
-    SA = mySentiment.Sentiment_Analysis(query=query, language='it' ,country='IT', start=data.index[0], end=data.index[-1])
-    polarity_array = np.array('')
-    for idx in data.index:
-        print(idx)
-        polarity_array = np.append(polarity_array, SA.do_Analysis(idx, debug=True))
-    
-    
-    data['polarity'] = polarity_array[:-1] # probabilmente va anche fatto un flip
-    plt.plot(polarity_array)
-    plt.show()
-# stop sentiment
-###########################################
-
 if medie == 1:
-    data = til.SMA().get_value_df(data, 5)
+    data = til.SMA().get_value_df(data, 7)
     data = data.rename(columns={'SMA':'SMAshort'})
-    data = til.SMA().get_value_df(data, 10)
+    data = til.SMA().get_value_df(data, 14)
     data = data.rename(columns={'SMA':'SMAlong'})
 
-    data = til.EMA().get_value_df(data, 5)
+    data = til.EMA().get_value_df(data, 7)
     data = data.rename(columns={'EMA':'EMAshort'})
-    data = til.EMA().get_value_df(data, 10)
+    data = til.EMA().get_value_df(data, 14)
     data = data.rename(columns={'EMA':'EMAlong'})
     
-    with open('output/textfile.txt', 'a') as f: f.write("\ncon medie")
+    with open(nome, 'a') as f: f.write("\ncon medie")
 
 if indicatori == 1:
     data = til.RSI().get_value_df(data, 14)
-    data = til.CCI().get_value_df(data, 14)
-    # data = til.ADI().get_value_df(data) la maggior parte venivano vuote
-    data = til.StochasticKAndD().get_value_df(data, 14)
-    data = til.MACD().get_value_df(data)
-    data = til.ATR().get_value_df(data, 14)
+    # data = til.CCI().get_value_df(data, 14)
+    # data = til.StochasticKAndD().get_value_df(data, 14)
+    # data = til.MACD().get_value_df(data)
+    # data = til.ATR().get_value_df(data, 14)
     
-    with open('output/textfile.txt', 'a') as f: f.write("\ncon indicatori")
+    with open(nome, 'a') as f: f.write("\ncon rsi")
 
 if HLOCV == 0:
     data = data.drop(["high", "low", "open", "volume"], axis=1)
-    with open('output/textfile.txt', 'a') as f: f.write("\nsolo adj close")
+    with open(nome, 'a') as f: f.write("\nsolo adj close")
 else:
-    with open('output/textfile.txt', 'a') as f: f.write("\ncon HLOCV")
+    with open(nome, 'a') as f: f.write("\ncon HLOCV")
 
+input_size = data.shape[1]  
 ##
-# Filtro per data (pu� tornare utile)
+# Filtro per data (puo' tornare utile)
 ##
 # data.index = pd.to_datetime(data.index, format='%Y-%m-%d') # Convert the date to datetime64
+# data = data.loc[data.index < '2023-10-23']
 # data = data.loc[(data.index >= '2013-10-31') & (data.index < '2023-10-23')]
 
-X, y = data, data.close.values # verranno usati come sinonimi alternativamente senza particolare logica
+X, y, dd = data, data.close.values, data.index.values # verranno usati come sinonimi alternativamente senza particolare logica
 
 ## 
 # Pulire: elimino righe con campi vuoti, calcolo input_size
 ##
 data.replace('', np.nan, inplace=True)
 data.replace('null', np.nan, inplace=True)
-print("raw data shape: ", data.shape)
 data.dropna(inplace=True)
-print("clean data shape: ", data.shape)
 
 if print_example == 1: data.to_csv("output/clean_pd.csv")
-
-input_size = data.shape[1]  
 
 ##
 # NORMALIZZO
 ##
-mm = MinMaxScaler()
 ss = StandardScaler()
+mm = MinMaxScaler()
+
 X_trans = ss.fit_transform(data)
 y_trans = mm.fit_transform(data.close.values.reshape(-1, 1)) 
+if print_example == 1: print("len X_trans", len(X_trans))
 
 ##
 # SPLIT
 ##
 X_ss, y_mm = myModule.split_sequences(X_trans, y_trans, config["window_size"], config["predicted_days"])
-print("X_ss e y_mm shape", X_ss.shape, y_mm.shape)
-if print_example == 1:
-    print("y_mm[0]", y_mm[0])
-    print("y_trans[99:149].squeeze(1)", y_trans[99:149].squeeze(1))
-
-# assert y_mm[0].all() == y_trans[99:149].squeeze(1).all() # capiscilo
+if print_example == 1: print("X_ss e y_mm shape", X_ss.shape, y_mm.shape)
 
 ##
 # CUTOFF
 ##
-total_samples = len(data)
-train_test_cutoff = round(config["train_split_size"] * total_samples)
+total_samples = len(X_ss)
+new_cutoff = config["predicted_days"]*config["ripetizioni"]
+train_test_cutoff = round(config["train_split_size"] * (total_samples-new_cutoff))
+print("train_test_cutoff: ", train_test_cutoff)
 
-z = config["window_size"]+config["predicted_days"]
 X_train = X_ss[:train_test_cutoff]
-X_test = X_ss[train_test_cutoff:]
+X_test = X_ss[train_test_cutoff:-new_cutoff]
 
 y_train = y_mm[:train_test_cutoff]
-y_test = y_mm[train_test_cutoff:] 
-# X_train = X_ss[:-z]
-# X_test = X_ss[-z:]
-# y_train = y_mm[:-z]
-# y_test = y_mm[-z:] 
+y_test = y_mm[train_test_cutoff:-new_cutoff] 
+
+X_new = X_ss[-new_cutoff:]
+y_new = y_mm[-new_cutoff:]
+
+# data_date = data_date[]
 print("Training Shape:", X_train.shape, y_train.shape)
 print("Testing Shape:", X_test.shape, y_test.shape) 
 
 # GRAFICO dei prezzi di chiusura 
 display_date_range = data.index[0].strftime("%b %Y") + " - " + data.index[-1].strftime("%b %Y")
-if(do_plot == 0):
+if(do_plot == 1):
     df_to_plot = data.reset_index() # stampare coll'indice e' lento
     plt.plot(df_to_plot.close)
     # plt.xlabel("Time")
@@ -187,8 +158,10 @@ if(do_plot == 0):
 ##
 X_train_tensors = torch.tensor(X_train, requires_grad=True, dtype=torch.double)
 X_test_tensors = torch.tensor(X_test, requires_grad=True, dtype=torch.double)
+X_new_tensors = torch.tensor(X_new, requires_grad=True, dtype=torch.double)
 y_train_tensors = torch.tensor(y_train, requires_grad=True, dtype=torch.double)
 y_test_tensors = torch.tensor(y_test, requires_grad=True, dtype=torch.double)
+y_new_tensors = torch.tensor(y_new, requires_grad=True, dtype=torch.double)
 
 X_train_tensors_final = torch.reshape(X_train_tensors,   
                                       (X_train_tensors.shape[0], config["window_size"], 
@@ -196,6 +169,9 @@ X_train_tensors_final = torch.reshape(X_train_tensors,
 X_test_tensors_final = torch.reshape(X_test_tensors,  
                                      (X_test_tensors.shape[0], config["window_size"], 
                                       X_test_tensors.shape[2])) 
+X_new_tensors_final = torch.reshape(X_new_tensors,  
+                                     (X_new_tensors.shape[0], config["window_size"], 
+                                      X_new_tensors.shape[2])) 
 
 print("Training Shape:", X_train_tensors_final.shape, y_train_tensors.shape)
 print("Testing Shape:", X_test_tensors_final.shape, y_test_tensors.shape) 
@@ -252,7 +228,7 @@ train_predict = lstm(df_X_ss)
 data_predict = train_predict.data.numpy() 
 dataY_plot = df_y_mm.data.numpy()
     # reverse transformation
-data_predict = mm.inverse_transform(data_predict) 
+data_predict = mm.inverse_transform(data_predict)
 dataY_plot = mm.inverse_transform(dataY_plot)
 
 true, preds = [], []
@@ -268,60 +244,63 @@ if do_plot == 1:
 
     plt.plot(true, label='Actual Data') # actual plot
     plt.plot(preds, label='Predicted Data') # predicted plot
-    plt.title(config["titolo"] + 'Time-Series Prediction')
+    plt.title(config["titolo"] + ' - Time-Series Prediction')
     plt.grid(which='both', axis='x')
     plt.legend()
-    plt.savefig("output/whole_plot.png", dpi=300)
-    plt.show() 
+    plt.savefig("output/train&test.png", dpi=300)
+    #plt.show() 
 
-text = "MSE whole: " +  str(mean_squared_error(true, preds))
-print(text)
-with open('output/textfile.txt', 'a') as f: f.write("\n"+text)
+# myModule.metriche(true[train_test_cutoff:], preds[train_test_cutoff:], "Metriche sui soli dati di test")
+myModule.metriche(true, preds, "Metriche sui dati di training e di test")
 
-text = "MAPE whole: " + str(mean_absolute_percentage_error(true, preds)*100) + "%"
-print(text)
-with open('output/textfile.txt', 'a') as f: f.write("\n"+text)
+# PREVEDO su nuovi dati
+array_pred, array_target = [], []
+for i in range(config["ripetizioni"]):
+    test_predict = lstm(X_new_tensors_final[i].unsqueeze(0))
+    test_predict = test_predict.detach().numpy()
+    
+    test_target = y_new_tensors[i].detach().numpy().reshape(1, -1)
 
-# PREVEDO
-test_predict = lstm(X_test_tensors_final[-1].unsqueeze(0)) # get the last sample
+    test_predict = mm.inverse_transform(test_predict)
+    test_target = mm.inverse_transform(test_target)
 
-test_predict = test_predict.detach().numpy()
-test_target = y_test_tensors[-1].detach().numpy() # last sample again
+    array_pred = np.append(array_pred, test_predict[0].tolist())
+    array_target = np.append(array_target, test_target[0].tolist())
 
-test_predict = mm.inverse_transform(test_predict)
-test_target = mm.inverse_transform(test_target.reshape(1, -1))
+test_target, test_predict = array_target, array_pred
 
-test_predict = test_predict[0].tolist()
-test_target = test_target[0].tolist()
+############################################
+########### SENTIMENT ######################
+############################################
+if sentiment == 1:
+    for i in range(new_cutoff-5):
+        idx1 = new_cutoff - i
+        idx2 = idx1 + 5
+        # print("data: ",data.index[-idx1], " - ", data.index[-idx2])
+        Sent = mySentiment.Sentiment_Analysis(query=query,
+                                              start=data.index[-idx2], 
+                                              end=data.index[-idx1])
+        s_a = Sent.do_Analysis(True)
+        data_sa = np.zeros((new_cutoff-5,2))
+        data_sa[i][0] = test_predict[i+5]
+        data_sa[i][1] = s_a
+    print(data_sa)
 
-text = "MSE small: " +  str(mean_squared_error(test_target, test_predict))
-print(text)
-with open('output/textfile.txt', 'a') as f: f.write("\n"+text)
+##############################################
 
-text = "MAPE small: " + str(mean_absolute_percentage_error(test_target, test_predict)*100) + "%"
-print(text)
-with open('output/textfile.txt', 'a') as f: f.write("\n"+text)
-
+myModule.metriche(test_target, test_predict, "Metriche sui dati nuovi")
 
 # GRAFICI
 if do_plot == 1:
-    # SMALL PLOT
-    plt.plot(test_target, label="Actual Data")
-    plt.plot(test_predict, label="LSTM Predictions")
-    plt.title(config["titolo"] + " - " + str(config["predicted_days"]) + " days prediction")
-    plt.grid(which='both', axis='x')
-    plt.savefig("output/small_plot.png", dpi=300)
-    plt.show()
-
-    # FINAL PLOT
     plt.figure(figsize=(10,6)) #plotting
-    a = [x for x in range(int(len(y)-100), len(y))]
-    plt.plot(a, y[int(len(y)-100):], label='Actual data');
-    c = [x for x in range(len(y)-config["predicted_days"], len(y))]
-    plt.plot(c, test_predict, label='One-shot multi-step prediction')
-    plt.axvline(label='prediction', x=len(y)-config["predicted_days"], c='g', linestyle='--')
-    plt.title(config["titolo"] + " - Partial date and " + str(config["predicted_days"]) + " days prediction")
+    a = [x for x in range(int(len(y)-(config["window_size"]+config["predicted_days"]*config["ripetizioni"])), len(y))]
+    plt.plot(a, y[-(config["window_size"]+config["predicted_days"]*config["ripetizioni"]):], label='Actual data: ws + pred')
+    c = [x for x in range(len(y)-config["predicted_days"]*config["ripetizioni"], len(y))]
+    plt.plot(c, test_predict, label='One-shot multi-step prediction', marker=".", markersize=10)
+    
+    plt.axvline(label='prediction', x=len(y)-config["predicted_days"]*config["ripetizioni"], c='g', linestyle='--')
+    plt.title(config["titolo"] + " - Partial date and " + str(config["predicted_days"]*config["ripetizioni"]) + " days prediction")
     plt.grid(which='both', axis='x')
     plt.legend()
-    plt.savefig("output/final_plot.png", dpi=300)
+    plt.savefig("output/small_plot.png", dpi=300)
     plt.show()
