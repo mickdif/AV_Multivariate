@@ -17,7 +17,7 @@ HLOCV = 0
 indicatori = 0
 medie = 0
 sentiment = 1
-query='Telecom Italia'
+query='Campari'
 
 # general options
 do_plot = 0 # 0 no 
@@ -26,7 +26,7 @@ save_output = 0 # 0 no
 
 # configuration
 config = {
-    "titolo": "TIT.MI", 
+    "titolo": "CPR.MI", 
     "periodo": "1y",
     
     "window_size": 20, # quanti dati usare per predire la prossima chiusura
@@ -268,29 +268,9 @@ for i in range(config["ripetizioni"]):
     array_target = np.append(array_target, test_target[0].tolist())
 
 test_target, test_predict = array_target, array_pred
-
-############################################
-############## SENTIMENT ###################
-############################################
-if sentiment == 1:
-    data_sa = np.zeros((new_cutoff-5,2))
-    Sent = mySentiment.Sentiment_Analysis()
-    for i in range(new_cutoff-5):
-        idx1 = new_cutoff - i
-        idx2 = idx1 + 5
-        s_a = Sent.do_Analysis(query=query, start=data.index[-idx2], 
-                                            end=data.index[-idx1],
-                                            debug=True)
-        print("media: ", s_a)
-        data_sa[i][0] = test_predict[i+5]
-        data_sa[i][1] = s_a
-    print(data_sa)
-
-##############################################
-
 myModule.metriche(test_target, test_predict, "Metriche sui dati nuovi")
 
-# GRAFICI
+# GRAFICO
 if do_plot == 1:
     plt.figure(figsize=(10,6)) #plotting
     a = [x for x in range(int(len(y)-(config["window_size"]+config["predicted_days"]*config["ripetizioni"])), len(y))]
@@ -304,3 +284,29 @@ if do_plot == 1:
     plt.legend()
     plt.savefig("output/small_plot.png", dpi=300)
     plt.show()
+
+############################################
+############## SENTIMENT ###################
+############################################
+if sentiment == 1:
+    data_sa = np.zeros((new_cutoff,2))
+    Sent = mySentiment.Sentiment_Analysis()
+    for i in range(new_cutoff):
+        idx1 = new_cutoff - i
+        idx2 = idx1 + 5
+        s_a = Sent.do_Analysis(query=query, start=data.index[-idx2], 
+                                            end=data.index[-idx1],
+                                            debug=True)
+        # print("media: ", s_a)
+        data_sa[i][0] = test_predict[i]
+        data_sa[i][1] = s_a
+    print(data_sa)
+    sa_pred = np.zeros(new_cutoff)
+    for i in range(new_cutoff):
+        sa_pred[i] = 3.0/100 * data_sa[i][0] * data_sa[i][1] + data_sa[i][0]
+    
+myModule.metriche(test_target, sa_pred, "Metriche con SA") 
+
+
+
+
